@@ -1,0 +1,27 @@
+struct uart_t {
+    data: u8,
+    control: u32,
+}
+
+const UART: *uart_t = 0x80001000 as *uart_t;
+
+fn writechar(c: u8) {
+    UART->control = 1<<2;
+    UART->data = c;
+
+    while UART->control & 1 == 0 {}
+}
+
+fn write(c: *u8) {
+    while *c != 0 {
+        writechar(*c);
+        c += 1;
+    }
+}
+
+fn write_u32(i: u32) {
+    writechar((i >> 24) as u8);
+    writechar((i >> 16) as u8);
+    writechar((i >> 8) as u8);
+    writechar((i) as u8);
+}

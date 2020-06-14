@@ -1,0 +1,76 @@
+// TODO: volume control, at a very minimum
+
+use lib::i2c;
+use lib::i2c::I2C;
+
+struct audio_t {
+    status: u32,
+}
+
+const AUDIO: *audio_t = 0x80004000 as *audio_t;
+
+const I2C_ADDR: u32 = 0x34;
+const BUFFER: *u32 = 0x80004800 as *u32;
+
+enum buf_enum {
+    FIRST_HALF,
+    SECOND_HALF,
+}
+
+fn wait_buffer(part: buf_enum) {
+    match part {
+        FIRST_HALF => { while AUDIO->status & 0x1 == 0 {} },
+        SECOND_HALF => { while AUDIO->status & 0x2 == 0 {} },
+    }
+
+    clear_buffer_flags();
+}
+
+fn clear_buffer_flags() {
+    AUDIO->status = 0x3;
+}
+
+fn write_reg(reg: u8, val: u16) {
+    let addr_byte: u8 = (reg << 1) | ((val >> 8) as u8);
+    let data_byte: u8 = val as u8;
+
+    i2c::wait_dr();
+    I2C->control = 0x3; // clear status bits
+
+    I2C->data = i2c::START_BIT | i2c::WRITE_BIT | I2C_ADDR;
+    i2c::wait_dr();
+    I2C->data = i2c::WRITE_BIT | (addr_byte as u32);
+    i2c::wait_dr();
+    I2C->data = i2c::STOP_BIT | i2c::WRITE_BIT | (data_byte as u32);
+    i2c::wait_dr();
+}
+
+fn read_reg(reg: u8) -> u32 {
+    i2c::wait_dr();
+    I2C->control = 0x3; // clear status bits
+    I2C->data = i2c::START_BIT | i2c::WRITE_BIT | I2C_ADDR;
+    i2c::wait_dr();
+    I2C->data = i2c::WRITE_BIT | (reg as u32);
+    i2c::wait_dr();
+    I2C->data = i2c::START_BIT | i2c::WRITE_BIT | I2C_ADDR | 1;
+    i2c::wait_dr();
+    I2C->data = 0;
+    while (I2C->control & 1) == 0 {}
+    I2C->control = 0x3;
+    let x = I2C->data;
+    I2C->data = i2c::STOP_BIT;
+    while (I2C->control & 1) == 0 {}
+
+    ((I2C->data) << 8) | x
+}
+
+fn init() {
+    write_reg(0xf, 0x0);
+    write_reg(0x6, 0x17);
+    write_reg(0x7, 0x01);
+    write_reg(0x4, 0x10);
+    write_reg(0x5, 0x0);
+    write_reg(0x2, 0x17f);
+    write_reg(0x9, 0x1);
+    write_reg(0x6, 0x07);
+}

@@ -1,0 +1,72 @@
+use lib::i2c;
+use lib::i2c::I2C;
+
+struct video_t {
+    base: u32,
+    status: u32,
+}
+
+const VIDEO: *video_t = 0x80005000 as *video_t;
+
+const I2C_ADDR: u32 = 0x72;
+
+fn i2c_reg_write(reg: u8, val: u16) {
+    i2c::wait_dr();
+    I2C->control = 0x3; // clear status bits
+
+    I2C->data = i2c::START_BIT | i2c::WRITE_BIT | I2C_ADDR;
+    i2c::wait_dr();
+    I2C->data = i2c::WRITE_BIT | (reg as u32);
+    i2c::wait_dr();
+    I2C->data = i2c::STOP_BIT | i2c::WRITE_BIT | (val as u32);
+    i2c::wait_dr();
+}
+
+fn i2c_reg_read(reg: u8) -> u32 {
+    i2c::wait_dr();
+    I2C->control = 0x3; // clear status bits
+
+    I2C->data = i2c::START_BIT | i2c::WRITE_BIT | I2C_ADDR;
+    i2c::wait_dr();
+    I2C->data = i2c::WRITE_BIT | (reg as u32);
+    i2c::wait_dr();
+    I2C->data = i2c::START_BIT | i2c::WRITE_BIT | I2C_ADDR | 1;
+    i2c::wait_dr();
+    I2C->data = i2c::STOP_BIT;
+    while (I2C->control & 1) == 0 {}
+
+    I2C->data
+}
+
+fn init() {
+    // Mandatory registers:
+    i2c_reg_write(0x98, 0x03);
+    i2c_reg_write(0x9A, 0x70);
+    i2c_reg_write(0x9C, 0x30);
+    i2c_reg_write(0x9D, 0x61);
+    i2c_reg_write(0xA2, 0xA4);
+    i2c_reg_write(0xA3, 0xA4);
+    i2c_reg_write(0xE0, 0xD0);
+    i2c_reg_write(0xF9, 0x00);
+    i2c_reg_write(0x41, 0x10);
+
+    // Mode-specific registers:
+    i2c_reg_write(0x15, 0x00); // 24-bit RGB 4:4:4, separate syncs
+    i2c_reg_write(0x16, 0x30); // Could probably be 0?
+    i2c_reg_write(0x17, 0x00); // Pass-through sync polarity; 4:3; DE gen disabled
+}
+
+fn putpixel(base: *u8, x: u32, y: u32, r: u8, g: u8, b: u8) {
+    let ofs = y;
+    ofs = (((ofs << 2) + ofs) << 7) + x;
+    ofs = (ofs << 1) + ofs;
+
+    base[ofs] = r;
+    base[ofs+1] = g;
+    base[ofs+2] = b;
+}
+
+fn wait_retrace() {
+    while VIDEO->status == 0 {}
+    VIDEO->status = 0x1;
+}

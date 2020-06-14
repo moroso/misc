@@ -1,0 +1,64 @@
+use lib::video;
+use lib::video::VIDEO;
+
+mod lib;
+
+fn putpixel(x: u32, y: u32, r: u8, g: u8, b: u8) {
+    video::putpixel(0x10000 as *u8, x, y, r, g, b);
+}
+
+fn main() {
+    video::init();
+
+    let x: u32;
+    let y: u32;
+
+    for (x = 0; x < 640; x += 1) {
+        for (y = 0; y < 480 * 2; y += 1) {
+            putpixel(x, y, 0, 0, 0xff);
+        }
+    }
+
+    // Draw an "M" with a shadow. Two copies, so we can scroll smoothly.
+    for (x = 0; x < 200; x += 1) {
+        for (y = 0; y < 10; y += 1) {
+            putpixel(120 + x + y + 4, 140 + x + 6, 0, 0, 0);
+            putpixel(640 - (120 + x + y) + 4, 140 + x + 6, 0, 0, 0);
+            putpixel(120 + y + 4, 140 + x + 6, 0, 0, 0);
+            putpixel(640 - (120 + y) + 4, 140 + x + 6, 0, 0, 0);
+
+            putpixel(120 + x + y + 4, 140 + x + 6 + 480, 0, 0, 0);
+            putpixel(640 - (120 + x + y) + 4, 140 + x + 6 + 480, 0, 0, 0);
+            putpixel(120 + y + 4, 140 + x + 6 + 480, 0, 0, 0);
+            putpixel(640 - (120 + y) + 4, 140 + x + 6 + 480, 0, 0, 0);
+        }
+    }
+
+    for (x = 0; x < 200; x += 1) {
+        for (y = 0; y < 10; y += 1) {
+            putpixel(120 + x + y, 140 + x, 255, 0, 0);
+            putpixel(640 - (120 + x + y), 140 + x, 255, 0, 0);
+            putpixel(120 + y, 140 + x, 255, 0, 0);
+            putpixel(640 - (120 + y), 140 + x, 255, 0, 0);
+
+            putpixel(120 + x + y, 140 + x + 480, 255, 0, 0);
+            putpixel(640 - (120 + x + y), 140 + x + 480, 255, 0, 0);
+            putpixel(120 + y, 140 + x + 480, 255, 0, 0);
+            putpixel(640 - (120 + y), 140 + x + 480, 255, 0, 0);
+        }
+    }
+
+    // Vertical scrolling demo.
+    video::wait_retrace();
+    VIDEO->base = 0x10000;
+
+    let base: u32 = 0x200;
+    while true {
+        video::wait_retrace();
+
+        VIDEO->base += 640 * 3;
+        if VIDEO->base >= 640 * 479 * 3 + 0x10000 {
+            VIDEO->base = 0x10000;
+        }
+    }
+}

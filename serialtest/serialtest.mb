@@ -1,0 +1,8 @@
+use lib::uart;
+
+mod lib;
+
+fn main() {
+    uart::write("Hello world!\r\n");
+    while true {}
+}

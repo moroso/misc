@@ -1,0 +1,18 @@
+struct i2c_t {
+    control: u32,
+    data: u32,
+}
+
+const I2C: *i2c_t = 0x80002000 as *i2c_t;
+
+const START_BIT: u32 = (1<<9);
+const STOP_BIT: u32 = (1<<8);
+const WRITE_BIT: u32 = (1<<10);
+
+// Note: most i2c functions aren't defined here, since the specifics depend
+// somewhat on the exact device we're communicating with.
+// Drivers can be found in the modules for the devices that need it.
+
+fn wait_dr() {
+    while (I2C->control & 0x4) == 0 {}
+}

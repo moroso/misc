@@ -1,0 +1,40 @@
+use lib::audio;
+use lib::uart::write;
+use lib::sd;
+
+mod lib;
+
+static buffer: u32[128];
+
+// The block on the SD card at which the music starts.
+const MUSIC_START_BLOCK: u32 = 16;
+
+fn main() {
+    write("Starting...\r\n");
+    audio::init();
+
+    let i: u32 = 0;
+    let block: u32 = 0;
+
+    while true {
+        let exp_block = i >> 7;
+        if exp_block != block {
+            block = exp_block;
+            sd::copy_block(&buffer[0]);
+            sd::start_block_read(MUSIC_START_BLOCK + block);
+        }
+
+        let j: u32;
+        audio::wait_buffer(audio::FIRST_HALF);
+        for (j = 0; j < 8; j += 1) {
+            audio::BUFFER[i & 0xf] = buffer[i & 0x7f];
+            i += 1;
+        }
+
+        audio::wait_buffer(audio::SECOND_HALF);
+        for (j = 0; j < 8; j += 1) {
+            audio::BUFFER[i & 0xf] = buffer[i & 0x7f];
+            i += 1;
+        }
+    }
+}
