@@ -30,3 +30,14 @@ fn copy_block(dest: *u32) {
     }
 }
 
+fn copy(start_block: u32, end_block: u32, dest: *u32) {
+    let block: u32;
+    let offs: u32 = 0;
+
+    for (block = start_block; block < end_block; block += 1) {
+        start_block_read(block);
+        wait();
+        copy_block(dest + offs);
+        offs += 128; // 1 block = 128 words
+    }
+}

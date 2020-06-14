@@ -1,0 +1,24 @@
+/*
+ * Display an image, 640 pixels wide * howevermany pixels tall,
+ * and slowly scroll it down.
+ */
+
+use lib::sd;
+use lib::video;
+
+mod lib;
+
+fn main() {
+    video::init();
+
+    let fb: u32 = 0x10000;
+    video::VIDEO->base = fb;
+    video::wait_retrace();
+
+    sd::copy(100, 16000, fb as *u32);
+
+    while true {
+        video::VIDEO->base += 640 * 3;
+        video::wait_retrace();
+    }
+}
