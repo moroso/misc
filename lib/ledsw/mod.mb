@@ -1,0 +1,6 @@
+struct ledsw_t {
+    leds: u32,
+    sw_buttons: u32, // TODO: split this into parts. Make sure the compiler gets alignment right.
+}
+
+const LEDSW: *ledsw_t = 0x80000000 as *ledsw_t;

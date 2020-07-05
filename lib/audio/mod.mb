@@ -17,11 +17,16 @@ enum buf_enum {
     SECOND_HALF,
 }
 
-fn wait_buffer(part: buf_enum) {
+// Returns true if the corresponding part of the buffer is ready for data.
+fn buffer_ready(part: buf_enum) -> bool {
     match part {
-        FIRST_HALF => { while AUDIO->status & 0x1 == 0 {} },
-        SECOND_HALF => { while AUDIO->status & 0x2 == 0 {} },
+        FIRST_HALF => { AUDIO->status & 0x1 != 0 },
+        SECOND_HALF => { AUDIO->status & 0x2 != 0 },
     }
+}
+
+fn wait_buffer(part: buf_enum) {
+    while !buffer_ready(part) {}
 
     clear_buffer_flags();
 }
