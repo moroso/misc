@@ -1,0 +1,63 @@
+/* Copyright 2020 The Moroso Project */
+
+/*
+Copyright 2018 Embedded Microprocessor Benchmark Consortium (EEMBC)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Original Author: Shay Gal-on
+*/
+
+/* Function: crc*
+        Service functions to calculate 16b CRC code.
+
+*/
+fn crcu8(data: u8, crc: u16) -> u16 {
+    let carry: bool;
+
+    let i: u8;
+    for (i = 0; i < 8; i += 1) {
+        let x16 = ((data & 1) ^ (crc as u8 & 1)) as u8;
+        data >>= 1;
+
+        if x16 == 1 {
+            crc ^= 0x4002;
+            carry = true;
+        } else {
+            carry = false;
+        }
+        crc >>= 1;
+        if carry {
+            crc |= 0x8000;
+        } else {
+            crc &= 0x7fff;
+        }
+    }
+    crc
+}
+
+fn crcu16(newval: u16, crc: u16) -> u16 {
+    crc = crcu8(newval as u8, crc);
+    crc = crcu8((newval >> 8) as u8, crc);
+    crc
+}
+
+fn crcu32(newval: u32, crc: u16) -> u16 {
+    crc = crcu16(newval as u16, crc);
+    crc = crcu16((newval >> 16) as u16, crc);
+    crc
+}
+
+fn crc16(newval: i16, crc: u16) -> u16 {
+    crcu16(newval as u16, crc)
+}
