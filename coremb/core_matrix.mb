@@ -1,0 +1,342 @@
+/* Copyright 2020 The Moroso Project */
+
+/*
+Copyright 2018 Embedded Microprocessor Benchmark Consortium (EEMBC)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Original Author: Shay Gal-on
+*/
+
+/*
+Topic: Description
+        Matrix manipulation benchmark
+
+        This very simple algorithm forms the basis of many more complex
+algorithms.
+
+        The tight inner loop is the focus of many optimizations (compiler as
+well as hardware based) and is thus relevant for embedded processing.
+
+        The total available data space will be divided to 3 parts:
+        NxN Matrix A - initialized with small values (upper 3/4 of the bits all
+zero). NxN Matrix B - initialized with medium values (upper half of the bits all
+zero). NxN Matrix C - used for the result.
+
+        The actual values for A and B must be derived based on input that is not
+available at compile time.
+ */
+
+use core_util::{crc16, debug};
+
+type matdat = i16;
+type matres = i32;
+
+struct mat_params {
+    N: i32,
+    A: *matdat,
+    B: *matdat,
+    C: *matres,
+}
+
+macro matrix_test_next!(x) { ($x) + 1 }
+macro matrix_clip!(x, y) { if ($y) != 0 { ($x) & 0x0ff } else { ($x) & 0x0ffff } }
+macro matrix_big!(x, y) { 0xf000 | ($x) }
+macro bit_extract!(x, from, to) { (($x) >> ($from)) & ~(0xffffffff << ($to)) }
+
+// XXX: The original puts this in core_portme... Do we care??
+type ptr_uint = u32;
+macro align_mem!(x) { (4 + ((($x) as ptr_uint - 1) & ~3)) as *u8 }
+
+
+fn printmat(A: *matdat, N: u32, name: *u8) {
+    let i: u32;
+    let j: u32;
+    printf!("Matrix %s [%dx%d]:\n", name, N, N);
+    for (i = 0; i < N; i += 1) {
+        for (j = 0; j < N; j += 1) {
+            if j != 0 {
+                printf!(",");
+            }
+            printf!("%d", A[i * N + j] as i32);
+        }
+        printf!("\n");
+    }
+}
+fn printmatC(A: *matres, N: u32, name: *u8) {
+    let i: u32;
+    let j: u32;
+    printf!("Matrix %s [%dx%d]:\n", name, N, N);
+    for (i = 0; i < N; i += 1) {
+        for (j = 0; j < N; j += 1) {
+            if j != 0 {
+                printf!(",");
+            }
+            printf!("%d", A[i * N + j]);
+        }
+        printf!("\n");
+    }
+}
+
+fn core_bench_matrix(p: *mat_params, seed: i16, crc: u16) -> u16 {
+    crc16(matrix_test(p->N as u32, p->C, p->A, p->B, seed), crc)
+}
+
+/* Function: matrix_test
+        Perform matrix manipulation.
+
+        Parameters:
+        N - Dimensions of the matrix.
+        C - memory for result matrix.
+        A - input matrix
+        B - operator matrix (not changed during operations)
+
+        Returns:
+        A CRC value that captures all results calculated in the function.
+        In particular, crc of the value calculated on the result matrix
+        after each step by <matrix_sum>.
+
+        Operation:
+
+        1 - Add a constant value to all elements of a matrix.
+        2 - Multiply a matrix by a constant.
+        3 - Multiply a matrix by a vector.
+        4 - Multiply a matrix by a matrix.
+        5 - Add a constant value to all elements of a matrix.
+
+        After the last step, matrix A is back to original contents.
+*/
+fn matrix_test(N: u32, C: *matres, A: *matdat, B: *matdat, val: matdat) -> i16 {
+    let crc: u16 = 0;
+    let clipval: matdat = matrix_big!(val);
+
+    matrix_add_const(N, A, val); /* make sure data changes */
+    if debug {
+        printmat(A, N, "matrix_add_const")
+    }
+
+    matrix_mul_const(N, C, A, val);
+    crc = crc16(matrix_sum(N, C, clipval), crc);
+    if debug {
+        printmatC(C, N, "matrix_mul_const")
+    }
+
+    matrix_mul_vect(N, C, A, B);
+    crc = crc16(matrix_sum(N, C, clipval), crc);
+    if debug {
+        printmatC(C, N, "matrix_mul_vect");
+    }
+
+    matrix_mul_matrix(N, C, A, B);
+    crc = crc16(matrix_sum(N, C, clipval), crc);
+    if debug {
+        printmatC(C, N, "matrix_mul_matrix");
+    }
+
+    matrix_mul_matrix_bitextract(N, C, A, B);
+    crc = crc16(matrix_sum(N, C, clipval), crc);
+    if debug {
+        printmatC(C, N, "matrix_mul_matrix_bitextract");
+    }
+
+    matrix_add_const(N, A, -val); /* return matrix to initial value */
+
+    crc as i16
+}
+
+/* Function : matrix_init
+        Initialize the memory block for matrix benchmarking.
+
+        Parameters:
+        blksize - Size of memory to be initialized.
+        memblk - Pointer to memory block.
+        seed - Actual values chosen depend on the seed parameter.
+        p - pointers to <mat_params> containing initialized matrixes.
+
+        Returns:
+        Matrix dimensions.
+
+        Note:
+        The seed parameter MUST be supplied from a source that cannot be
+   determined at compile time
+ */
+fn core_init_matrix(blksize: u32, memblk: *u8, seed: i32, p: *mat_params) -> u32 {
+    let N: u32 = 0;
+    let A: *matdat;
+    let B: *matdat;
+    let order: i32 = 1;
+    let val: matdat;
+
+    let i: u32 = 0;
+    let j: u32 = 0;
+    if seed == 0 {
+        seed = 1;
+    }
+    while j < blksize {
+        i += 1;
+        j = i * i * 2 * 4;
+    }
+    N = i - 1;
+    A = align_mem!(memblk) as *matdat;
+    B = A + N * N;
+
+    for (i = 0; i < N; i += 1)
+    {
+        for (j = 0; j < N; j += 1)
+        {
+            seed         = ((order * seed) % 65536);
+            val          = (seed + order) as i16;
+            val          = matrix_clip!(val, 0);
+            B[i * N + j] = val;
+            val          = (val as i32 + order) as i16;
+            val          = matrix_clip!(val, 1);
+            A[i * N + j] = val;
+            order += 1;
+        }
+    }
+
+    p->A = A;
+    p->B = B;
+    p->C = align_mem!(B + N * N) as *matres;
+    p->N = N as i32;
+
+    if debug {
+        printmat(A, N, "A");
+        printmat(B, N, "B");
+    }
+    N
+}
+
+/////
+/* Function: matrix_sum
+        Calculate a function that depends on the values of elements in the
+   matrix.
+
+        For each element, accumulate into a temporary variable.
+
+        As long as this value is under the parameter clipval,
+        add 1 to the result if the element is bigger then the previous.
+
+        Otherwise, reset the accumulator and add 10 to the result.
+*/
+fn matrix_sum(N: u32, C: *matres, clipval: matdat) -> i16 {
+    let tmp: matres = 0;
+    let prev: matres = 0;
+    let cur: matres = 0;
+    let ret: i16 = 0;
+    let i: u32;
+    let j: u32;
+
+    for (i = 0; i < N; i += 1) {
+        for (j = 0; j < N; j += 1) {
+            cur = C[i * N + j];
+            tmp += cur;
+            if tmp > clipval as matres {
+                ret += 10;
+                tmp = 0;
+            } else {
+                ret += if cur > prev { 1 } else { 0 };
+            }
+            prev = cur;
+        }
+    }
+    ret
+}
+
+/* Function: matrix_mul_const
+        Multiply a matrix by a constant.
+        This could be used as a scaler for instance.
+*/
+fn matrix_mul_const(N: u32, C: *matres, A: *matdat, val: matdat) {
+    let i: u32;
+    let j: u32;
+
+    for (i = 0; i < N; i += 1) {
+        for (j = 0; j < N; j += 1) {
+            C[i * N + j] = A[i * N + j] as matres * val as matres;
+        }
+    }
+}
+
+/* Function: matrix_add_const
+        Add a constant value to all elements of a matrix.
+*/
+fn matrix_add_const(N: u32, A: *matdat, val: matdat) {
+    let i: u32;
+    let j: u32;
+
+    for (i = 0; i < N; i += 1) {
+        for (j = 0; j < N; j += 1) {
+            A[i * N + j] += val;
+        }
+    }
+}
+
+/* Function: matrix_mul_vect
+        Multiply a matrix by a vector.
+        This is common in many simple filters (e.g. fir where a vector of
+   coefficients is applied to the matrix.)
+*/
+fn matrix_mul_vect(N: u32, C: *matres, A: *matdat, B: *matdat) {
+    let i: u32;
+    let j: u32;
+
+    for (i = 0; i < N; i += 1) {
+        C[i] = 0;
+        for (j = 0; j < N; j += 1) {
+            C[i] += A[i * N + j] as matres * B[j] as matres;
+        }
+    }
+}
+
+/* Function: matrix_mul_matrix
+        Multiply a matrix by a matrix.
+        Basic code is used in many algorithms, mostly with minor changes such as
+   scaling.
+*/
+fn matrix_mul_matrix(N: u32, C: *matres, A: *matdat, B: *matdat) {
+    let i: u32;
+    let j: u32;
+    let k: u32;
+
+    for (i = 0; i < N; i += 1) {
+        for (j = 0; j < N; j += 1) {
+            C[i * N + j] = 0;
+
+            for (k = 0; k < N; k += 1) {
+                C[i * N + j] += A[i * N + k] as matres * B[k * N + j] as matres;
+            }
+        }
+    }
+}
+
+/* Function: matrix_mul_matrix_bitextract
+        Multiply a matrix by a matrix, and extract some bits from the result.
+        Basic code is used in many algorithms, mostly with minor changes such as
+   scaling.
+*/
+fn matrix_mul_matrix_bitextract(N: u32, C: *matres, A: *matdat, B: *matdat) {
+    let i: u32;
+    let j: u32;
+    let k: u32;
+
+    for (i = 0; i < N; i += 1) {
+        for (j = 0; j < N; j += 1) {
+            C[i * N + j] = 0;
+            for (k = 0; k < N; k += 1) {
+                let tmp = A[i * N + k] as matres * B[k * N + j] as matres;
+                C[i * N + j] += bit_extract!(tmp, 2, 4) * bit_extract!(tmp, 5, 7);
+            }
+        }
+    }
+}

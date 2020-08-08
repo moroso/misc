@@ -1,0 +1,14 @@
+mod core_matrix;
+mod core_util;
+
+static memblk: u8[900];
+
+fn main() -> u32 {
+    // This is just some testing code to get started
+    let p: core_matrix::mat_params;
+    core_matrix::core_init_matrix(700, &memblk as *u8, 0xdeabeef, &p);
+    let crc = core_matrix::core_bench_matrix(&p, 0xd00d, 0);
+    printf!("result: %x\n", crc as u32);
+
+    0
+}
