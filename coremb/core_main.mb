@@ -1,14 +1,21 @@
 mod core_matrix;
 mod core_util;
+mod core_state;
 
-static memblk: u8[900];
+static memblk1: u8[900];
+static memblk2: u8[666];
 
 fn main() -> u32 {
     // This is just some testing code to get started
     let p: core_matrix::mat_params;
-    core_matrix::core_init_matrix(700, &memblk as *u8, 0xdeabeef, &p);
+    core_matrix::core_init_matrix(700, &memblk1 as *u8, 0xdeabeef, &p);
     let crc = core_matrix::core_bench_matrix(&p, 0xd00d, 0);
-    printf!("result: %x\n", crc as u32);
+    printf!("matrix result: %x\n", crc as u32);
+
+    let pstate = &memblk2 as *u8;
+    core_state::core_init_state(666, 13333, pstate);
+    let crc2 = core_state::core_bench_state(666, pstate, 13333, 13333, 221, 0);
+    printf!("state result: %x\n", crc2 as u32);
 
     0
 }
