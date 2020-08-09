@@ -18,7 +18,79 @@ limitations under the License.
 Original Author: Shay Gal-on
 */
 
-const debug: bool = true;
+const debug: bool = false;
+
+/* Function: get_seed
+        Get a values that cannot be determined at compile time.
+
+        Since different embedded systems and compilers are used, 3 different
+   methods are provided: 1 - Using a volatile variable. This method is only
+   valid if the compiler is forced to generate code that reads the value of a
+   volatile variable from memory at run time. Please note, if using this method,
+   you would need to modify core_portme.c to generate training profile. 2 -
+   Command line arguments. This is the preferred method if command line
+   arguments are supported. 3 - System function. If none of the first 2 methods
+   is available on the platform, a system function which is not a stub can be
+   used.
+
+        e.g. read the value on GPIO pins connected to switches, or invoke
+   special simulator functions.
+*/
+
+/* For Mb, we only support args but also to be honest we bullshit it.
+ * The compiler won't actually partially evaluate it, I don't think. */
+
+fn parseval(valstring: *u8) -> i32 {
+    let retval: i32  = 0;
+    let neg: i32     = 1;
+    let hexmode: bool = false;
+    if *valstring == '-' {
+        neg = -1;
+        valstring += 1;
+    }
+    if (valstring[0] == '0') && (valstring[1] == 'x') {
+        hexmode = true;
+        valstring += 2;
+    }
+    /* first look for digits */
+    if hexmode {
+        while ((*valstring >= '0') && (*valstring <= '9'))
+               || ((*valstring >= 'a') && (*valstring <= 'f')) {
+            let digit = *valstring - '0';
+            if digit > 9 {
+                digit = 10 + *valstring - 'a';
+            }
+            retval *= 16;
+            retval += digit as i32;
+            valstring += 1;
+        }
+    } else {
+        while (*valstring >= '0') && (*valstring <= '9') {
+            let digit = *valstring - '0';
+            retval *= 10;
+            retval += digit as i32;
+            valstring += 1;
+        }
+    }
+    /* now add qualifiers */
+    if *valstring == 'K' {
+        retval *= 1024;
+    }
+    if *valstring == 'M' {
+        retval *= 1024 * 1024;
+    }
+
+    retval *= neg;
+    retval
+}
+
+fn get_seed_args(i: u32, argc: u32, argv: **u8) -> i32 {
+    if argc > i {
+        parseval(argv[i])
+    } else {
+        0
+    }
+}
 
 /* Function: crc*
         Service functions to calculate 16b CRC code.

@@ -127,9 +127,6 @@ static floatpat: (*u8)[4] = ["35.54400", ".1234500", "-110.700", "+0.64400"];
 static scipat: (*u8)[4] = ["5.500e+3", "-.123e-2", "-87e+832", "+0.6e-12"];
 static errpat: (*u8)[4] = ["T0.3e-1F", "-T.T++Tq", "1T3.4e4z", "34.0e-T^"];
 
-
-const ASDF: u32 = 0;
-
 /* Function: core_init_state
         Initialize the input data for the state machine.
 
@@ -141,7 +138,6 @@ const ASDF: u32 = 0;
    determined at compile time
 */
 fn core_init_state(size: u32, seed: i16, p: *u8) {
-
     let total: u32 = 0;
     let next: u32 = 0;
     let buf: *u8 = 0 as *u8;

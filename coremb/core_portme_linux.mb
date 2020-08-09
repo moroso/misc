@@ -1,0 +1,45 @@
+struct core_portable {
+    id: u8
+}
+
+// this needs to be generated or something
+const COMPILER_VERSION: *u8 = "ccross, gcc 7.4.0";
+const COMPILER_FLAGS: *u8 = "-O2";
+
+fn portable_init(pargc: *u32, pargv: ***u8, p: *core_portable) {
+    p->id = 1;
+}
+
+fn portable_fini(p: *core_portable) {
+
+}
+
+// Clock stuff.
+const MS_IN_S: u32 = 1000;
+const NS_IN_MS: u32 = 1000000000 / MS_IN_S;
+
+const CLOCK_REALTIME: u32 = 0;
+
+// only works on 32 bit...
+struct timespec {
+    tv_sec: u32,
+    tv_nsec: i32,
+}
+
+extern fn clock_gettime(clk_id: u32, tp: *timespec) -> i32;
+
+static start_time_val: timespec;
+static end_time_val: timespec;
+
+fn start_time() {
+    clock_gettime(CLOCK_REALTIME, &start_time_val);
+}
+
+fn stop_time() {
+    clock_gettime(CLOCK_REALTIME, &end_time_val);
+}
+
+fn get_time_ms() -> u32 {
+    (((end_time_val.tv_sec - start_time_val.tv_sec) * MS_IN_S) as i32 +
+     ((end_time_val.tv_nsec - start_time_val.tv_nsec) / NS_IN_MS as i32)) as u32
+}

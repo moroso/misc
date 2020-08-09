@@ -51,37 +51,10 @@ input for the operation.
 
 use core_util::{crc16, crcu16, debug};
 use core_state::core_bench_state;
-use core_matrix::{core_bench_matrix, mat_params};
+use core_matrix::core_bench_matrix;
 
-struct list_data {
-    data16: i16,
-    idx: i16,
-}
+use core_types::{list_data, list_head, core_results};
 
-struct list_head {
-    next: *list_head,
-    info: *list_data,
-}
-
-/* Should this go elsewhere? */
-struct core_results {
-    /* inputs */
-    seed1: i16, /* Initializing seed */
-    seed2: i16, /* Initializing seed */
-    seed3: i16, /* Initializing seed */
-    memblock: (*u8)[4], /* Pointer to safe memory location */
-    size: u32, /* Size of the data */
-    iterations: u32, /* Number of iterations to execute */
-    execs: u32, /* Bitmask of operations to execute */
-    list: *list_head,
-    mat: mat_params,
-    /* outputs */
-    crc: u16,
-    crclist: u16,
-    crcmatrix: u16,
-    crcstate: u16,
-    err: i16,
-}
 
 fn calc_func(pdata: *i16, res: *core_results) -> i16 {
     let data = *pdata;

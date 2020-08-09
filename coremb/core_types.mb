@@ -1,0 +1,43 @@
+use core_portme::core_portable;
+
+type matdat = i16;
+type matres = i32;
+
+struct mat_params {
+    N: i32,
+    A: *matdat,
+    B: *matdat,
+    C: *matres,
+}
+
+struct list_data {
+    data16: i16,
+    idx: i16,
+}
+
+struct list_head {
+    next: *list_head,
+    info: *list_data,
+}
+
+/* Should this go elsewhere? */
+struct core_results {
+    /* inputs */
+    seed1: i16, /* Initializing seed */
+    seed2: i16, /* Initializing seed */
+    seed3: i16, /* Initializing seed */
+    memblock: (*u8)[4], /* Pointer to safe memory location */
+    size: u32, /* Size of the data */
+    iterations: u32, /* Number of iterations to execute */
+    execs: u32, /* Bitmask of operations to execute */
+    list: *list_head,
+    mat: mat_params,
+    /* outputs */
+    crc: u16,
+    crclist: u16,
+    crcmatrix: u16,
+    crcstate: u16,
+    err: i16,
+    /* Multithread specific */
+    port: core_portable,
+}

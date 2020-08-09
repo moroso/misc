@@ -38,16 +38,7 @@ available at compile time.
  */
 
 use core_util::{crc16, debug};
-
-type matdat = i16;
-type matres = i32;
-
-struct mat_params {
-    N: i32,
-    A: *matdat,
-    B: *matdat,
-    C: *matres,
-}
+use core_types::{matdat, matres, mat_params};
 
 macro matrix_test_next!(x) { ($x) + 1 }
 macro matrix_clip!(x, y) { if ($y) != 0 { ($x) & 0x0ff } else { ($x) & 0x0ffff } }
