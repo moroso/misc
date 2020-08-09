@@ -1,0 +1,581 @@
+/* Copyright 2020 The Moroso Project */
+
+/*
+Copyright 2018 Embedded Microprocessor Benchmark Consortium (EEMBC)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Original Author: Shay Gal-on
+*/
+
+/*
+Topic: Description
+        Benchmark using a linked list.
+
+        Linked list is a common data structure used in many applications.
+
+        For our purposes, this will excercise the memory units of the processor.
+        In particular, usage of the list pointers to find and alter data.
+
+        We are not using Malloc since some platforms do not support this
+library.
+
+        Instead, the memory block being passed in is used to create a list,
+        and the benchmark takes care not to add more items then can be
+        accomodated by the memory block. The porting layer will make sure
+        that we have a valid memory block.
+
+        All operations are done in place, without using any extra memory.
+
+        The list itself contains list pointers and pointers to data items.
+        Data items contain the following:
+
+        idx - An index that captures the initial order of the list.
+        data - Variable data initialized based on the input parameters. The 16b
+are divided as follows: o Upper 8b are backup of original data. o Bit 7
+indicates if the lower 7 bits are to be used as is or calculated. o Bits 0-2
+indicate type of operation to perform to get a 7b value. o Bits 3-6 provide
+input for the operation.
+
+*/
+
+use core_util::{crc16, crcu16, debug};
+use core_state::core_bench_state;
+use core_matrix::{core_bench_matrix, mat_params};
+
+struct list_data {
+    data16: i16,
+    idx: i16,
+}
+
+struct list_head {
+    next: *list_head,
+    info: *list_data,
+}
+
+/* Should this go elsewhere? */
+struct core_results {
+    /* inputs */
+    seed1: i16, /* Initializing seed */
+    seed2: i16, /* Initializing seed */
+    seed3: i16, /* Initializing seed */
+    memblock: (*u8)[4], /* Pointer to safe memory location */
+    size: u32, /* Size of the data */
+    iterations: u32, /* Number of iterations to execute */
+    execs: u32, /* Bitmask of operations to execute */
+    list: *list_head,
+    mat: mat_params,
+    /* outputs */
+    crc: u16,
+    crclist: u16,
+    crcmatrix: u16,
+    crcstate: u16,
+    err: i16,
+}
+
+fn calc_func(pdata: *i16, res: *core_results) -> i16 {
+    let data = *pdata;
+    let retval: u16;
+    /* bit 7 indicates if the function result has been cached */
+    let optype: u8 = ((data >> 7) & 1) as u8;
+    if optype != 0 { /* if cached, use cache */
+        data & 0x007f
+    } else {
+        /* otherwise calculate and cache the result */
+        let flag = data & 0x7; /* bits 0-2 is type of function to perform */
+        /* bits 3-6 is specific data for the operation */
+        let dtype: i16 = ((data >> 3) & 0xf) as i16;
+        dtype |= dtype << 4; /* replicate the lower 4 bits to get an 8b value */
+
+        // can't switch :(
+        if flag == 0 {
+            if dtype < 0x22 {
+                /* set min period for bit corruption */
+                dtype = 0x22;
+            }
+            retval = core_bench_state(
+                res->size, res->memblock[3], res->seed1, res->seed2, dtype, res->crc);
+            if res->crcstate == 0 {
+                res->crcstate = retval;
+            }
+        } else if flag == 1 {
+            retval = core_bench_matrix(&(res->mat), dtype, res->crc);
+            if res->crcmatrix == 0 {
+                res->crcmatrix = retval;
+            }
+        } else {
+            retval = data as u16;
+        }
+        res->crc = crcu16(retval, res->crc);
+        retval &= 0x007f;
+        *pdata = (data & 0xff00) | 0x0080 | retval as i16; /* cache the result */
+        retval as i16
+    }
+}
+
+/* Function: cmp_complex
+        Compare the data item in a list cell.
+
+        Can be used by mergesort.
+*/
+fn cmp_complex(a: *list_data, b: *list_data, res: *core_results) -> i32 {
+    let val1 = calc_func(&(a->data16), res) as i32;
+    let val2 = calc_func(&(b->data16), res) as i32;
+    val1 - val2
+}
+
+/* Function: cmp_idx
+        Compare the idx item in a list cell, and regen the data.
+
+        Can be used by mergesort.
+*/
+fn cmp_idx(a: *list_data, b: *list_data, res: *core_results) -> i32 {
+    if res == null {
+        a->data16 = (a->data16 & 0xff00) | (0x00ff & (a->data16 >> 8));
+        b->data16 = (b->data16 & 0xff00) | (0x00ff & (b->data16 >> 8));
+    }
+    (a->idx - b->idx) as i32
+}
+
+fn copy_info(to: *list_data, from: *list_data) {
+    to->data16 = from->data16;
+    to->idx    = from->idx;
+}
+
+/* Benchmark for linked list:
+        - Try to find multiple data items.
+        - List sort
+        - Operate on data from list (crc)
+        - Single remove/reinsert
+        * At the end of this function, the list is back to original state
+*/
+fn core_bench_list(res: *core_results, finder_idx: i16) -> u16 {
+    let retval: u16 = 0;
+    let found: u16 = 0;
+    let missed: u16 = 0;
+    let list = res->list;
+    let find_num = res->seed3;
+    let this_find: *list_head;
+    let finder: *list_head;
+    let remover: *list_head;
+    let info: list_data;
+    let i: i16;
+
+    info.idx = finder_idx;
+    /* find <find_num> values in the list, and change the list each time
+     * (reverse and cache if value found) */
+    for (i = 0; i < find_num; i += 1) {
+        info.data16 = (i & 0xff);
+        this_find   = core_list_find(list, &info);
+        list        = core_list_reverse(list);
+        if this_find == null {
+            missed += 1;
+            retval += ((list->next->info->data16 >> 8) & 1) as u16;
+        } else {
+            found += 1;
+            if this_find->info->data16 & 0x1 != 0 {
+                /* use found value */
+                retval += ((this_find->info->data16 >> 9) & 1) as u16;
+            }
+            /* and cache next item at the head of the list (if any) */
+            if this_find->next != null {
+                finder          = this_find->next;
+                this_find->next = finder->next;
+                finder->next    = list->next;
+                list->next      = finder;
+            }
+        }
+        if info.idx >= 0 {
+            info.idx += 1;
+        }
+        if debug {
+            printf!("List find %d: [%d,%d,%d]\n", i, retval, missed, found);
+        }
+    }
+    retval += found * 4 - missed;
+    /* sort the list by data content and remove one item*/
+    if finder_idx > 0 {
+        list = core_list_mergesort(list, cmp_complex, res);
+    }
+    remover = core_list_remove(list->next);
+    /* CRC data content of list from location of index N forward, and then undo
+     * remove */
+    finder = core_list_find(list, &info);
+    if finder == null {
+        finder = list->next;
+    }
+    while finder != null {
+        retval = crc16(list->info->data16, retval);
+        finder = finder->next;
+    }
+    if debug {
+        printf!("List sort 1: %04x\n", retval);
+    }
+    remover = core_list_undo_remove(remover, list->next);
+    /* sort the list by index, in effect returning the list to original state */
+    list = core_list_mergesort(list, cmp_idx, null);
+    /* CRC data content of list */
+    finder = list->next;
+    while finder != null {
+        retval = crc16(list->info->data16, retval);
+        finder = finder->next;
+    }
+    if debug {
+        printf!("List sort 2: %04x\n", retval);
+    }
+    retval
+}
+
+/* Function: core_list_init
+        Initialize list with data.
+
+        Parameters:
+        blksize - Size of memory to be initialized.
+        memblock - Pointer to memory block.
+        seed - 	Actual values chosen depend on the seed parameter.
+                The seed parameter MUST be supplied from a source that cannot be
+   determined at compile time
+
+        Returns:
+        Pointer to the head of the list.
+
+*/
+fn core_list_init(blksize: u32, memblock: *list_head, seed: i16) -> *list_head {
+    /* calculated pointers for the list */
+    let per_item = 16 + sizeof(list_data);
+    /* to accomodate systems with 64b pointers, and make sure
+     * same code is executed, set max list elements */
+    let size: u32     = (blksize / per_item) - 2;
+    let memblock_end  = memblock + size;
+    let datablock     = memblock_end as *list_data;
+    let datablock_end = datablock + size;
+    /* some useful variables */
+    let i: u32;
+    let finder: *list_head;
+    let list = memblock;
+    let info: list_data;
+
+    /* create a fake items for the list head and tail */
+    list->next         = null;
+    list->info         = datablock;
+    list->info->idx    = 0x0000;
+    list->info->data16 = 0x8080 as i16;
+    memblock += 1;
+    datablock += 1;
+    info.idx    = 0x7fff;
+    info.data16 = 0xffff as i16;
+    core_list_insert_new(
+        list, &info, &memblock, &datablock, memblock_end, datablock_end);
+
+    /* then insert size items */
+    for (i = 0; i < size; i += 1) {
+        let datpat = ((seed as u32 ^ i) as u16 & 0xf);
+        let dat
+            = (datpat << 3) | (i & 0x7) as u16; /* alternate between algorithms */
+        info.data16 = ((dat << 8) | dat) as i16;  /* fill the data with actual data and
+                                                     upper bits with rebuild value */
+        core_list_insert_new(
+            list, &info, &memblock, &datablock, memblock_end, datablock_end);
+    }
+    /* and now index the list so we know initial seed order of the list */
+    finder = list->next;
+    i      = 1;
+    while finder->next != null {
+        /* first 20% of the list in order */
+        if i < size / 5 {
+            finder->info->idx = i as i16;
+            i += 1;
+        } else {
+            let pat = (i ^ seed as u32) as u16; /* get a pseudo random number */
+            i += 1;
+             /* make sure the mixed items end up after the ones in sequence */
+            finder->info->idx = (0x3fff & (((i & 0x07) << 8) | pat as u32)) as i16;
+        }
+        finder = finder->next;
+    }
+    list = core_list_mergesort(list, cmp_idx, null);
+    if debug {
+        printf!("Initialized list:\n");
+        finder = list;
+        while finder != null {
+            printf!(
+                "[%04x,%04x]", finder->info->idx, finder->info->data16 as u16);
+            finder = finder->next;
+        }
+        printf!("\n");
+    }
+    list
+}
+
+/* Function: core_list_insert
+        Insert an item to the list
+
+        Parameters:
+        insert_point - where to insert the item.
+        info - data for the cell.
+        memblock - pointer for the list header
+        datablock - pointer for the list data
+        memblock_end - end of region for list headers
+        datablock_end - end of region for list data
+
+        Returns:
+        Pointer to new item.
+*/
+fn core_list_insert_new(insert_point: *list_head,
+                        info: *list_data,
+                        memblock: **list_head,
+                        datablock: **list_data,
+                        memblock_end: *list_head,
+                        datablock_end: *list_data) -> *list_head {
+    let newitem: *list_head;
+
+    if (*memblock + 1) >= memblock_end {
+        return null;
+    }
+    if (*datablock + 1) >= datablock_end {
+        return null;
+    }
+
+    newitem = *memblock;
+    *memblock = *memblock + 1;
+    newitem->next      = insert_point->next;
+    insert_point->next = newitem;
+
+    newitem->info = *datablock;
+    *datablock = *datablock + 1;
+    copy_info(newitem->info, info);
+
+    newitem
+}
+
+/* Function: core_list_remove
+        Remove an item from the list.
+
+        Operation:
+        For a singly linked list, remove by copying the data from the next item
+        over to the current cell, and unlinking the next item.
+
+        Note:
+        since there is always a fake item at the end of the list, no need to
+   check for NULL.
+
+        Returns:
+        Removed item.
+*/
+fn core_list_remove(item: *list_head) -> *list_head {
+    let tmp: *list_data;
+    let ret = item->next;
+    /* swap data pointers */
+    tmp        = item->info;
+    item->info = ret->info;
+    ret->info  = tmp;
+    /* and eliminate item */
+    item->next = item->next->next;
+    ret->next  = null;
+    ret
+}
+
+/* Function: core_list_undo_remove
+        Undo a remove operation.
+
+        Operation:
+        Since we want each iteration of the benchmark to be exactly the same,
+        we need to be able to undo a remove.
+        Link the removed item back into the list, and switch the info items.
+
+        Parameters:
+        item_removed - Return value from the <core_list_remove>
+        item_modified - List item that was modified during <core_list_remove>
+
+        Returns:
+        The item that was linked back to the list.
+
+*/
+fn core_list_undo_remove(
+        item_removed: *list_head, item_modified: *list_head) -> *list_head {
+    let tmp: *list_data;
+    /* swap data pointers */
+    tmp                 = item_removed->info;
+    item_removed->info  = item_modified->info;
+    item_modified->info = tmp;
+    /* and insert item */
+    item_removed->next  = item_modified->next;
+    item_modified->next = item_removed;
+    item_removed
+}
+
+/* Function: core_list_find
+        Find an item in the list
+
+        Operation:
+        Find an item by idx (if not 0) or specific data value
+
+        Parameters:
+        list - list head
+        info - idx or data to find
+
+        Returns:
+        Found item, or NULL if not found.
+*/
+fn core_list_find(list: *list_head, info: *list_data) -> *list_head {
+    if info->idx >= 0 {
+        while list != null && (list->info->idx != info->idx) {
+            list = list->next;
+        }
+        list
+    } else {
+        while list != null && ((list->info->data16 & 0xff) != info->data16) {
+            list = list->next;
+        }
+        list
+    }
+}
+
+/* Function: core_list_reverse
+        Reverse a list
+
+        Operation:
+        Rearrange the pointers so the list is reversed.
+
+        Parameters:
+        list - list head
+        info - idx or data to find
+
+        Returns:
+        Found item, or NULL if not found.
+*/
+fn core_list_reverse(list: *list_head) -> *list_head {
+    let next: *list_head = null;
+    let tmp: *list_head;
+    while list != null {
+        tmp        = list->next;
+        list->next = next;
+        next       = list;
+        list       = tmp;
+    }
+    next
+}
+
+/* Function: core_list_mergesort
+        Sort the list in place without recursion.
+
+        Description:
+        Use mergesort, as for linked list this is a realistic solution.
+        Also, since this is aimed at embedded, care was taken to use iterative
+   rather then recursive algorithm. The sort can either return the list to
+   original order (by idx) , or use the data item to invoke other other
+   algorithms and change the order of the list.
+
+        Parameters:
+        list - list to be sorted.
+        cmp - cmp function to use
+
+        Returns:
+        New head of the list.
+
+        Note:
+        We have a special header for the list that will always be first,
+        but the algorithm could theoretically modify where the list starts.
+
+ */
+fn core_list_mergesort(list: *list_head,
+                       cmp:  fn(*list_data, *list_data, *core_results) -> i32,
+                       res: *core_results) -> *list_head {
+    let p: *list_head;
+    let q: *list_head;
+    let e: *list_head;
+    let tail: *list_head;
+    let insize: i32;
+    let nmerges: i32;
+    let psize: i32;
+    let qsize: i32;
+    let i: i32;
+
+    insize = 1;
+
+    while true {
+        p    = list;
+        list = null;
+        tail = null;
+
+        nmerges = 0; /* count number of merges we do in this pass */
+
+        while p != null {
+            nmerges += 1; /* there exists a merge to be done */
+            /* step `insize' places along from p */
+            q     = p;
+            psize = 0;
+            for (i = 0; i < insize; i += 1) {
+                psize += 1;
+                q = q->next;
+                if q == null {
+                    break;
+                }
+            }
+
+            /* if q hasn't fallen off end, we have two lists to merge */
+            qsize = insize;
+
+            /* now we have two lists; merge them */
+            while psize > 0 || (qsize > 0 && q != null) {
+
+                /* decide whether next element of merge comes from p or q */
+                if psize == 0 {
+                    /* p is empty; e must come from q. */
+                    e = q;
+                    q = q->next;
+                    qsize -= 1;
+                } else if qsize == 0 || q == null {
+                    /* q is empty; e must come from p. */
+                    e = p;
+                    p = p->next;
+                    psize -= 1;
+                } else if cmp(p->info, q->info, res) <= 0 {
+                    /* First element of p is lower (or same); e must come from
+                     * p. */
+                    e = p;
+                    p = p->next;
+                    psize -= 1;
+                } else {
+                    /* First element of q is lower; e must come from q. */
+                    e = q;
+                    q = q->next;
+                    qsize -= 1;
+                }
+
+                /* add the next element to the merged list */
+                if tail != null {
+                    tail->next = e;
+                } else {
+                    list = e;
+                }
+                tail = e;
+            }
+
+            /* now p has stepped `insize' places along, and q has too */
+            p = q;
+        }
+
+        tail->next = null;
+
+        /* If we have done only one merge, we're finished. */
+        /* allow for nmerges==0, the empty list case */
+        if nmerges <= 1 {
+            return list;
+        }
+
+        /* Otherwise repeat, merging lists twice the size */
+        insize *= 2;
+    }
+    list
+}
