@@ -1,2 +1,4 @@
-coremb
+coremb.linux
+coremb.ir.linux
 *.c
+*.dep
