@@ -25,15 +25,12 @@ Original Author: Shay Gal-on
 
 
 use core_util::{debug, crc16, crcu16, get_seed_args};
-use core_list_join::core_bench_list;
-use core_types::core_results;
+use core_list_join::{core_bench_list, core_list_init};
+use core_matrix::{core_init_matrix};
+use core_state::{core_init_state};
+use core_types::{core_results, list_head};
+use core_portme;
 
-mod core_types;
-mod core_matrix;
-mod core_util;
-mod core_state;
-mod core_list_join;
-mod core_portme;
 
 /* Function: iterate
         Run the benchmark for a specified number of iterations.
@@ -193,19 +190,19 @@ fn main(argc: u32, argv: **u8)  {
     /* call inits */
     for (i = 0; i < MULTITHREAD; i += 1) {
         if results[i].execs & ID_LIST != 0 {
-            results[i].list = core_list_join::core_list_init(
-                results[0].size, results[i].memblock[1] as *core_types::list_head,
+            results[i].list = core_list_init(
+                results[0].size, results[i].memblock[1] as *list_head,
                 results[i].seed1);
         }
         if results[i].execs & ID_MATRIX != 0 {
-            core_matrix::core_init_matrix(
+            core_init_matrix(
                 results[0].size,
                 results[i].memblock[2],
                 (results[i].seed1 as i32) | ((results[i].seed2 as i32) << 16),
                 &(results[i].mat));
         }
         if results[i].execs & ID_STATE != 0 {
-            core_state::core_init_state(
+            core_init_state(
                 results[0].size, results[i].seed1, results[i].memblock[3]);
         }
     }

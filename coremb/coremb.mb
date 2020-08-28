@@ -1,0 +1,11 @@
+mod core_types;
+mod core_matrix;
+mod core_util;
+mod core_state;
+mod core_list_join;
+mod core_portme;
+mod core_main;
+
+fn main(argc: u32, argv: **u8) {
+    core_main::main(argc, argv)
+}
