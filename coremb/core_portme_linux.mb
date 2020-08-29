@@ -20,10 +20,13 @@ const NS_IN_MS: u32 = 1000000000 / MS_IN_S;
 
 const CLOCK_REALTIME: u32 = 0;
 
-// only works on 32 bit...
+// HACK! These should obviously be integer types, but we want to work
+// on 64-bit linux (in ccross, at least) and don't have 64-bit integer
+// types, so we use pointers instead, which we can take the difference
+// of.
 struct timespec {
-    tv_sec: u32,
-    tv_nsec: i32,
+    tv_sec: *u8, // ... ulong
+    tv_nsec: *u8, // ... ilong
 }
 
 extern fn clock_gettime(clk_id: u32, tp: *timespec) -> i32;
@@ -40,6 +43,6 @@ fn stop_time() {
 }
 
 fn get_time_ms() -> u32 {
-    (((end_time_val.tv_sec - start_time_val.tv_sec) * MS_IN_S) as i32 +
-     ((end_time_val.tv_nsec - start_time_val.tv_nsec) / NS_IN_MS as i32)) as u32
+    (((end_time_val.tv_sec - start_time_val.tv_sec) as u32 * MS_IN_S) as i32 +
+     ((end_time_val.tv_nsec - start_time_val.tv_nsec) as i32 / NS_IN_MS as i32)) as u32
 }

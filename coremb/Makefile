@@ -13,7 +13,10 @@ coremb.c: coremb.mb $(CONFIG)
 coremb.ir.c: coremb.mb $(CONFIG)
 	$(MBC) -d --target ir -l core_portme:core_portme_linux.mb $< -o $@
 
-%.linux: %.c
+coremb.linux: coremb.c
+	gcc -o $@ -O2 -g $<
+
+coremb.ir.linux: coremb.ir.c
 	gcc -m32 -o $@ -O2 -g $<
 
 ALL_DEPS=$(LINUX_PROGS:%.linux=%.dep)

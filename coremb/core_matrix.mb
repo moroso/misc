@@ -45,9 +45,10 @@ macro matrix_clip!(x, y) { if ($y) != 0 { ($x) & 0x0ff } else { ($x) & 0x0ffff }
 macro matrix_big!(x, y) { 0xf000 | ($x) }
 macro bit_extract!(x, from, to) { (($x) >> ($from)) & ~(0xffffffff << ($to)) }
 
-// XXX: The original puts this in core_portme... Do we care??
-type ptr_uint = u32;
-macro align_mem!(x) { (4 + ((($x) as ptr_uint - 1) & ~3)) as *u8 }
+// We do this in a hacky way so that we work on 64-bit despite not
+// having 64-bit integers...
+fn align4(x: *u8) -> *u8 { x - ((x as u32) & 3) }
+macro align_mem!(x) { (4 + align4(($x) as *u8 - 1)) as *u8 }
 
 
 fn printmat(A: *matdat, N: u32, name: *u8) {
