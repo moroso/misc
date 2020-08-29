@@ -2,3 +2,6 @@ coremb.linux
 coremb.ir.linux
 *.c
 *.dep
+.gdb_history
+flags.c.mb
+flags.ir.mb

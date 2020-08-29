@@ -1,12 +1,16 @@
+mod flags;
+
 struct core_portable {
     id: u8
 }
 
-// this needs to be generated or something
-const COMPILER_VERSION: *u8 = "ccross, gcc 7.4.0";
-const COMPILER_FLAGS: *u8 = "-O2";
+static COMPILER_FLAGS: *u8;
+static COMPILER_VERSION: *u8;
 
 fn portable_init(pargc: *u32, pargv: ***u8, p: *core_portable) {
+    // apparently it doesn't work to assign them as consts?
+    COMPILER_FLAGS = flags::COMPILER_FLAGS;
+    COMPILER_VERSION = flags::COMPILER_VERSION;
     p->id = 1;
 }
 
