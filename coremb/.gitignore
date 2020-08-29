@@ -1,5 +1,6 @@
 coremb.linux
 coremb.ir.linux
+coremb.osorom
 *.c
 *.dep
 .gdb_history
